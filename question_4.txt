@@ -1,0 +1,191 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+class GrammarParser
+{
+    static Dictionary<string, List<List<string>>> grammar = new();
+    static Dictionary<string, HashSet<string>> first = new();
+    static Dictionary<string, HashSet<string>> follow = new();
+    static HashSet<string> nonTerminals = new();
+    static HashSet<string> terminals = new();
+    static string startSymbol = "";
+
+    static void Main()
+    {
+        Console.WriteLine("Enter grammar rules (A -> B C | D). Type 'done' to finish:");
+
+        while (true)
+        {
+            string input = Console.ReadLine();
+            if (input.Trim().ToLower() == "done") break;
+
+            var parts = input.Split("->", StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2)
+            {
+                Console.WriteLine("Invalid rule format.");
+                return;
+            }
+
+            string lhs = parts[0].Trim();
+            if (startSymbol == "") startSymbol = lhs;
+            nonTerminals.Add(lhs);
+
+            var rhsAlternatives = parts[1].Split('|');
+            foreach (var alt in rhsAlternatives)
+            {
+                var symbols = alt.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+                if (!grammar.ContainsKey(lhs))
+                    grammar[lhs] = new List<List<string>>();
+
+                grammar[lhs].Add(symbols);
+            }
+        }
+
+        // Detect left recursion
+        foreach (var nt in grammar.Keys)
+        {
+            foreach (var rule in grammar[nt])
+            {
+                if (rule.Count > 0 && rule[0] == nt)
+                {
+                    Console.WriteLine("Grammar invalid for top-down parsing.");
+                    return;
+                }
+            }
+        }
+
+        // Fill terminals
+        foreach (var rules in grammar.Values)
+        {
+            foreach (var rule in rules)
+            {
+                foreach (var symbol in rule)
+                {
+                    if (!grammar.ContainsKey(symbol) && symbol != "ε")
+                        terminals.Add(symbol);
+                }
+            }
+        }
+
+        foreach (var nt in grammar.Keys)
+        {
+            first[nt] = new HashSet<string>();
+            follow[nt] = new HashSet<string>();
+        }
+
+        follow[startSymbol].Add("$");
+
+        ComputeFirst();
+        ComputeFollow();
+
+        Console.WriteLine("\n--- FIRST Sets ---");
+        foreach (var nt in grammar.Keys)
+        {
+            Console.WriteLine($"FIRST({nt}) = {{ {string.Join(", ", first[nt])} }}");
+        }
+
+        Console.WriteLine("\n--- FOLLOW Sets ---");
+        foreach (var nt in grammar.Keys)
+        {
+            Console.WriteLine($"FOLLOW({nt}) = {{ {string.Join(", ", follow[nt])} }}");
+        }
+    }
+
+    static void ComputeFirst()
+    {
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var nt in grammar.Keys)
+            {
+                foreach (var rule in grammar[nt])
+                {
+                    for (int i = 0; i < rule.Count; i++)
+                    {
+                        string symbol = rule[i];
+
+                        if (!nonTerminals.Contains(symbol)) // terminal
+                        {
+                            if (first[nt].Add(symbol))
+                                changed = true;
+                            break;
+                        }
+
+                        foreach (var f in first[symbol])
+                        {
+                            if (f != "ε" && first[nt].Add(f))
+                                changed = true;
+                        }
+
+                        if (!first[symbol].Contains("ε"))
+                            break;
+
+                        if (i == rule.Count - 1)
+                        {
+                            if (first[nt].Add("ε"))
+                                changed = true;
+                        }
+                    }
+                }
+            }
+        } while (changed);
+    }
+
+    static void ComputeFollow()
+    {
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var lhs in grammar.Keys)
+            {
+                foreach (var rule in grammar[lhs])
+                {
+                    for (int i = 0; i < rule.Count; i++)
+                    {
+                        string B = rule[i];
+                        if (!nonTerminals.Contains(B)) continue;
+
+                        bool epsilonInAll = true;
+                        for (int j = i + 1; j < rule.Count; j++)
+                        {
+                            string beta = rule[j];
+
+                            if (!nonTerminals.Contains(beta))
+                            {
+                                if (follow[B].Add(beta))
+                                    changed = true;
+                                epsilonInAll = false;
+                                break;
+                            }
+
+                            foreach (var f in first[beta])
+                            {
+                                if (f != "ε" && follow[B].Add(f))
+                                    changed = true;
+                            }
+
+                            if (!first[beta].Contains("ε"))
+                            {
+                                epsilonInAll = false;
+                                break;
+                            }
+                        }
+
+                        if (epsilonInAll || i == rule.Count - 1)
+                        {
+                            foreach (var f in follow[lhs])
+                            {
+                                if (follow[B].Add(f))
+                                    changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        } while (changed);
+    }
+}
